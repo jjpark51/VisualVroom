@@ -1,6 +1,6 @@
 import whisper
 
-model = whisper.load_model("turbo")
+model = whisper.load_model("base")
 
 # load audio and pad/trim it to fit 30 seconds
 audio = whisper.load_audio("audio.mp3")

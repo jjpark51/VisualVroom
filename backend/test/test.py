@@ -192,7 +192,7 @@ def process_audio_files(left_wav, rear_wav, right_wav, output_dir):
 
 def main():
     # Define input and output directories
-    test_dir = "./"
+    test_dir = "./sounds/ambulance"
     output_dir = "test_output"
     
     # Find WAV files for each channel
