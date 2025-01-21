@@ -109,15 +109,37 @@ Training parameters can be modified in the script:
 
 ## Performance
 
-Current model performance metrics:
-- Accuracy: 84.38% (Server-based)
-- Recall: 84.38%
-- Precision: 85.44%
-- F1 Score: 84.66%
+### Overall Model Performance
+- Test Accuracy: 97.63%
+- Validation Accuracy: 97.16%
+- Best Model Epoch: 14
 
-Edge computing performance:
-- Accuracy: 83.01%
+### Per-Class Performance
+
+#### Ambulance Detection
+- Left Direction: 99.06%
+- Middle Direction: 100.00%
+- Right Direction: 94.85%
+
+#### Car Horn Detection
+- Left Direction: 100.00%
+- Middle Direction: 97.75%
+- Right Direction: 100.00%
+
+#### Fire Truck Detection
+- Left Direction: 98.15%
+- Middle Direction: 95.08%
+- Right Direction: 96.55%
+
+#### Police Car Detection
+- Left Direction: 100.00%
+- Middle Direction: 96.77%
+- Right Direction: 92.08%
+
+### System Performance
 - Average inference time: 8.75ms
+- Real-time processing capability: Yes
+- Minimum confidence threshold: 80%
 
 ## Development
 
