@@ -1,3 +1,15 @@
 /Dataset of warning sound types and source directions
-model_checkpoints/best_model.pth
+model_checkpoints
+recordings
+images
+temp_data
+train/Dataset of warning sound types and source directions
+train/static_models
+whisper
+FastAPI/custom_dataset
+FastAPI/eight_class
+FastAPI/Motocycles
+FastAPI/processed_dataset
+FastAPI/twelve_class
 sounds
+
