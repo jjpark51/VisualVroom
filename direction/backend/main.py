@@ -1,59 +1,84 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
 import torch
 from torchvision import transforms
 from PIL import Image
-import numpy as np
-import librosa
-import io
 import soundfile as sf
+from pydub import AudioSegment
+import librosa
+import numpy as np
 import torch.nn as nn
 from torchvision.models import vit_b_16
 import logging
-import json
-import asyncio
-from typing import List, Dict
-import base64
-
+import os
+import tempfile
+from fastapi import FastAPI, File, UploadFile, Form
+import uvicorn
+from datetime import datetime
+import whisper
+from typing import Optional
+import tempfile
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+whisper_model = whisper.load_model("small")
 
-# Constants
-SAMPLE_RATE = 16000
-N_FFT = 402
-HOP_LENGTH = 201
-N_MFCC = 13
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
+@app.post("/transcribe")
+async def transcribe_audio(
+    sample_rate: int = Form(...),
+    audio_data: UploadFile = File(...)
+):
+    """
+    Endpoint for speech-to-text transcription using Whisper AI.
+    Processes complete audio recordings and returns transcription.
+    """
+    temp_file = None
+    try:
+        # Read raw audio data
+        content = await audio_data.read()
+        
+        # Convert raw PCM data to numpy array
+        audio_np = np.frombuffer(content, dtype=np.int16)
+        audio_float = audio_np.astype(np.float32) / 32768.0  # Normalize to [-1, 1]
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"Client connected. Total connections: {len(self.active_connections)}")
+        # Save as temporary WAV file (Whisper requires a file)
+        temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        sf.write(temp_file.name, audio_float, sample_rate, format='WAV')
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"Client disconnected. Total connections: {len(self.active_connections)}")
+        # Log audio details
+        logger.info(f"Processing audio file:")
+        logger.info(f"Sample rate: {sample_rate} Hz")
+        logger.info(f"Duration: {len(audio_float) / sample_rate:.2f} seconds")
+        logger.info(f"Max amplitude: {np.max(np.abs(audio_float)):.4f}")
 
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+        # Transcribe using Whisper
+        result = whisper_model.transcribe(
+            temp_file.name,
+            language="en",
+            fp16=False
+        )
 
-manager = ConnectionManager()
+        transcribed_text = result["text"].strip()
+        logger.info(f"Transcription result: {transcribed_text}")
+
+        return {
+            "status": "success",
+            "text": transcribed_text
+        }
+
+    except Exception as e:
+        logger.error(f"Error in transcription: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+    finally:
+        # Cleanup
+        if temp_file and os.path.exists(temp_file.name):
+            os.unlink(temp_file.name)
 
 class VisionTransformer(nn.Module):
     def __init__(self, num_classes=6):
@@ -61,256 +86,262 @@ class VisionTransformer(nn.Module):
         self.vit = vit_b_16()
         num_features = self.vit.heads.head.in_features
         self.vit.heads.head = nn.Linear(num_features, num_classes)
-        
-        # Modify the input layer to accept grayscale images
-        self.vit.conv_proj = nn.Conv2d(1, self.vit.conv_proj.out_channels, 
-                                      kernel_size=16, stride=16)
+        self.vit.conv_proj = nn.Conv2d(1, self.vit.conv_proj.out_channels, kernel_size=16, stride=16)
 
     def forward(self, x):
         return self.vit(x)
 
-class AudioProcessor:
-    def __init__(self, model_path='./checkpoints/best_model_checkpoint.pth'):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = self._load_model(model_path)
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485], std=[0.229])
-        ])
+def convert_to_wav(audio_file, output_file):
+    audio = AudioSegment.from_file(audio_file)
+    audio.export(output_file, format="wav")
+    return output_file
 
-    def process_audio_channels(self, left_channel, right_channel, sample_rate=16000):
-        """Process audio channels exactly like inference.py"""
-        try:
-            # Convert bytes to float32 arrays (-1 to 1 range)
-            left_audio = self.bytes_to_audio(left_channel, sample_rate)
-            right_audio = self.bytes_to_audio(right_channel, sample_rate)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Print to console
+        logging.FileHandler('app.log')  # Also save to file
+    ]
+)
+logger = logging.getLogger(__name__)
 
-            # Generate spectrograms with exact same parameters as inference.py
-            left_spectrogram = self.convert_to_spectrogram(
-                left_audio, 
-                sr=sample_rate,
-                n_fft=402,  # Match inference.py
-                hop_length=201  # Match inference.py
-            )
-            right_spectrogram = self.convert_to_spectrogram(
-                right_audio, 
-                sr=sample_rate,
-                n_fft=402,
-                hop_length=201
-            )
+# Make sure all loggers are capturing INFO level
+logging.getLogger().setLevel(logging.INFO)
 
-            # Generate MFCCs with exact same parameters
-            left_mfcc = self.convert_to_mfcc(
-                left_audio,
-                sr=sample_rate,
-                n_mfcc=13,  # Match inference.py
-                n_fft=402,
-                hop_length=201,
-                fmax=sample_rate/2  # Match inference.py Nyquist frequency
-            )
-            right_mfcc = self.convert_to_mfcc(
-                right_audio,
-                sr=sample_rate,
-                n_mfcc=13,
-                n_fft=402,
-                hop_length=201,
-                fmax=sample_rate/2
-            )
+# Add a print statement as backup
+def log_with_print(message):
+    print(message)  # Backup print
+    logger.info(message)  # Normal logging
 
-            # Convert to images with exact dimensions
-            left_spectrogram_img = self.array_to_image(left_spectrogram, 241, 201)
-            right_spectrogram_img = self.array_to_image(right_spectrogram, 241, 201)
-            left_mfcc_img = self.array_to_image(left_mfcc, 241, 13)
-            right_mfcc_img = self.array_to_image(right_mfcc, 241, 13)
+def process_audio(wav_file):
+    """Process the WAV file and generate an image representation."""
+    # Load and analyze audio file
+    y, sr = sf.read(wav_file)
+    duration = len(y) / sr
+    
+    # Separate channels and log their stats
+    top_mic = y[:, 0] if len(y.shape) > 1 else y
+    bottom_mic = y[:, 1] if len(y.shape) > 1 else y
+    
+    # Calculate amplitude-based direction
+    top_max = float(abs(top_mic).max())
+    bottom_max = float(abs(bottom_mic).max())
+    amplitude_direction = "L" if top_max > bottom_max else "R"
+    amplitude_ratio = top_max / bottom_max if top_max > bottom_max else bottom_max / top_max
+    
+    # Log detailed channel information with print backup
+    log_with_print(f"\n{'='*50}")
+    log_with_print(f"Processing file: {os.path.basename(wav_file)}")
+    log_with_print(f"Audio stats: channels={y.shape[1] if len(y.shape) > 1 else 1}, duration={duration:.2f}s")
+    log_with_print(f"Top mic (left channel) stats:")
+    log_with_print(f"  - max_amplitude={top_max:.4f}")
+    log_with_print(f"  - mean_amplitude={float(abs(top_mic).mean()):.4f}")
+    log_with_print(f"  - rms={float(np.sqrt(np.mean(top_mic**2))):.4f}")
+    
+    log_with_print(f"Bottom mic (right channel) stats:")
+    log_with_print(f"  - max_amplitude={bottom_max:.4f}")
+    log_with_print(f"  - mean_amplitude={float(abs(bottom_mic).mean()):.4f}")
+    log_with_print(f"  - rms={float(np.sqrt(np.mean(bottom_mic**2))):.4f}")
 
-            # Create final image exactly like inference.py
-            final_img = Image.new('L', (241, 428))
-            final_img.paste(left_mfcc_img, (0, 0))
-            final_img.paste(left_spectrogram_img, (0, 13))
-            final_img.paste(right_mfcc_img, (0, 214))
-            final_img.paste(right_spectrogram_img, (0, 227))
+    # Generate features
+    logger.info("Generating spectrograms and MFCCs...")
+    
+    # Convert to spectrograms and MFCCs with additional stats
+    def convert_to_spectrogram(audio, sr, n_fft=402, hop_length=201):
+        D = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
+        spec_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+        log_with_print(f"Spectrogram stats: shape={spec_db.shape}, range=[{spec_db.min():.2f}, {spec_db.max():.2f}]")
+        return spec_db
 
-            return final_img
+    def convert_to_mfcc(audio, sr, n_mfcc=13, n_fft=402, hop_length=201):
+        mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft, 
+                                  hop_length=hop_length, fmax=sr/2)
+        log_with_print(f"MFCC stats: shape={mfcc.shape}, range=[{mfcc.min():.2f}, {mfcc.max():.2f}]")
+        return mfcc
 
-        except Exception as e:
-            logger.error(f"Error processing audio channels: {e}")
-            raise
+    top_spectrogram = convert_to_spectrogram(top_mic, sr)
+    bottom_spectrogram = convert_to_spectrogram(bottom_mic, sr)
+    top_mfcc = convert_to_mfcc(top_mic, sr)
+    bottom_mfcc = convert_to_mfcc(bottom_mic, sr)
 
-    def array_to_image(self, array, width, height):
-        """Convert array to image exactly like inference.py"""
-        # Ensure array is finite
-        array = np.nan_to_num(array)
-        
-        # Normalize exactly like inference.py
+    # Convert arrays to images
+    def array_to_image(array, width, height, name):
         array = ((array - array.min()) * (255.0 / (array.max() - array.min() + 1e-8))).astype(np.uint8)
         image = Image.fromarray(array).convert('L')
-        image = image.resize((width, height))
-        return image
+        resized = image.resize((width, height))
+        logger.info(f"{name} image size: {resized.size}, mode: {resized.mode}")
+        return resized
 
-    def convert_to_spectrogram(self, audio, sr, n_fft=402, hop_length=201):
-        """Convert to spectrogram exactly like inference.py"""
-        D = librosa.stft(audio, n_fft=n_fft, hop_length=hop_length)
-        D_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-        return D_db
+    # Convert to images with specific dimensions
+    top_spectrogram_img = array_to_image(top_spectrogram, 241, 201, "Top spectrogram")
+    bottom_spectrogram_img = array_to_image(bottom_spectrogram, 241, 201, "Bottom spectrogram")
+    top_mfcc_img = array_to_image(top_mfcc, 241, 13, "Top MFCC")
+    bottom_mfcc_img = array_to_image(bottom_mfcc, 241, 13, "Bottom MFCC")
 
-    def convert_to_mfcc(self, audio, sr, n_mfcc=13, n_fft=402, hop_length=201, fmax=None):
-        """Convert to MFCC exactly like inference.py"""
-        mfccs = librosa.feature.mfcc(
-            y=audio, 
-            sr=sr, 
-            n_mfcc=n_mfcc, 
-            n_fft=n_fft, 
-            hop_length=hop_length,
-            fmax=fmax
-        )
-        return mfccs
-    def _load_model(self, model_path):
-        """Load model exactly like inference.py"""
-        try:
-            # Initialize the model
-            model = VisionTransformer(num_classes=6)
-            
-            # Load the checkpoint
-            checkpoint = torch.load(model_path, map_location=self.device)
-            
-            # Extract model state dict from checkpoint
-            if 'model_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'])
-                logger.info(f"Loaded checkpoint from epoch {checkpoint['epoch']} with validation accuracy {checkpoint['best_acc']:.4f}")
-            else:
-                # Fallback for older model format
-                model.load_state_dict(checkpoint)
-                logger.info("Loaded legacy model format")
-            
-            # Move model to device and set to eval mode
-            model = model.to(self.device)
-            model.eval()
-            
-            return model
-        except Exception as e:
-            logger.error(f"Error loading model: {e}")
-            raise
+    # Stitch images together
+    final_img = Image.new('L', (241, 428))
+    final_img.paste(top_mfcc_img, (0, 0))
+    final_img.paste(top_spectrogram_img, (0, 13))
+    final_img.paste(bottom_mfcc_img, (0, 214))
+    final_img.paste(bottom_spectrogram_img, (0, 227))
 
-    def bytes_to_audio(self, audio_bytes, sample_rate=16000):
-        """Convert raw PCM bytes to numpy array."""
-        try:
-            # Convert bytes to numpy array (16-bit integers)
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-            
-            # Normalize to float between -1 and 1
-            audio_array = audio_array.astype(np.float32) / 32768.0
-            
-            return audio_array
-        except Exception as e:
-            logger.error(f"Error converting bytes to audio: {e}")
-            raise
-            
-    def predict(self, image):
-        """Make prediction using the model."""
-        try:
-            img_tensor = self.transform(image).unsqueeze(0).to(self.device)
-            
-            with torch.no_grad():
-                outputs = self.model(img_tensor)
-                probabilities = torch.nn.functional.softmax(outputs, dim=1)
-                top_prob, top_class = torch.max(probabilities, 1)
+    # Save the stitched image for inspection
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = "debug_images"
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Save individual components
+    top_spectrogram_img.save(f"{save_dir}/top_spec_{timestamp}.png")
+    bottom_spectrogram_img.save(f"{save_dir}/bottom_spec_{timestamp}.png")
+    top_mfcc_img.save(f"{save_dir}/top_mfcc_{timestamp}.png")
+    bottom_mfcc_img.save(f"{save_dir}/bottom_mfcc_{timestamp}.png")
+    final_img.save(f"{save_dir}/stitched_{timestamp}.png")
+    
+    log_with_print(f"Processing completed successfully")
+    log_with_print(f"{'='*50}\n")
+    
+    return final_img, amplitude_direction, amplitude_ratio
 
-            # Map class index to vehicle type and direction
-            classes = ['Siren_L', 'Siren_R', 'Bike_L', 'Bike_R', 'Horn_L', 'Horn_R']
-            predicted_class = classes[top_class.item()]
-            vehicle_type, direction = predicted_class.split('_')
-            
-            confidence = float(top_prob.item())
-            prediction = {
-                'vehicle_type': vehicle_type,
-                'direction': 'Left' if direction == 'L' else 'Right',
-                'confidence': confidence,
-                'should_notify': confidence > 0.97
+def predict_direction(model, image, device):
+    """Run inference and return predicted class and confidence score."""
+    
+    # Apply identical transformation as standalone script
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485], std=[0.229])
+    ])
+
+    # Transform image
+    img_tensor = transform(image).unsqueeze(0).to(device)
+
+    # Ensure model is in eval mode
+    model.eval()
+    with torch.no_grad():
+        outputs = model(img_tensor)
+        probabilities = torch.nn.functional.softmax(outputs, dim=1)
+        top_prob, top_class = torch.max(probabilities, 1)
+
+    # Class mapping
+    classes = [
+        'Siren_L', 'Siren_R', 'Bike_L', 'Bike_R', 'Horn_L', 'Horn_R'
+    ]    
+    predicted_class = classes[top_class.item()]
+    vehicle_type, direction = predicted_class.split('_')
+    confidence = float(top_prob.item())
+
+    return vehicle_type, direction, confidence
+
+# Load model globally to avoid reloading
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model_path = "./checkpoints/feb_25_checkpoint.pth"
+model = VisionTransformer(num_classes=6)
+checkpoint = torch.load(model_path, map_location=device)
+model.load_state_dict(checkpoint['model_state_dict'])
+model.to(device)
+model.eval()
+
+
+@app.post("/test")
+async def test_audio(audio_file: UploadFile = File(...)):
+    """Endpoint for testing audio inference."""
+    temp_m4a = tempfile.NamedTemporaryFile(suffix='.m4a', delete=False)
+    temp_wav = None
+    
+    try:
+        logger.info(f"Received audio file: {audio_file.filename}")
+
+        # Save the file temporarily
+        content = await audio_file.read()
+        temp_m4a.write(content)
+        temp_m4a.close()
+
+        # Convert to WAV
+        temp_wav = temp_m4a.name.replace('.m4a', '.wav')
+        convert_to_wav(temp_m4a.name, temp_wav)
+
+        # Process audio into image and get amplitude-based direction
+        processed_image, amplitude_direction, amplitude_ratio = process_audio(temp_wav)
+
+        # Run model inference
+        vehicle_type, model_direction, confidence = predict_direction(model, processed_image, device)
+
+        # Use amplitude-based direction instead of model prediction
+        final_direction = amplitude_direction
+
+        # Log inference results
+        logger.info(f"\nPrediction Results:")
+        logger.info(f"Model prediction: {vehicle_type}_{model_direction}")
+        # logger.info(f"Amplitude-based direction: {amplitude_direction}")
+        logger.info(f"Final decision: {vehicle_type}_{final_direction}")
+        logger.info(f"Amplitude ratio: {amplitude_ratio:.4f}")
+        logger.info(f"Model confidence: {confidence:.4f}")
+
+        return {
+            "status": "success",
+            "inference_result": {
+                "vehicle_type": vehicle_type,
+                "direction": model_direction,
+                "confidence": round(confidence, 4),
+                "should_notify": confidence > 0.97,
+                "amplitude_ratio": round(amplitude_ratio, 4)
             }
-            
-            # Only log predictions with confidence above 0.9
-            if confidence > 0.97:
-                logger.info(f"High confidence prediction: {prediction}")
-            
-            return prediction
-
-        except Exception as e:
-            logger.error(f"Error making prediction: {e}")
-            raise
-# Initialize audio processor
-audio_processor = AudioProcessor()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Receive audio data as JSON with base64 encoded audio
-            data = await websocket.receive_json()
-            
-            try:
-                # Convert base64 audio data to numpy arrays
-                left_channel = audio_processor.base64_to_audio(data['left_channel'])
-                right_channel = audio_processor.base64_to_audio(data['right_channel'])
-
-                # Process audio and get feature image
-                feature_image = audio_processor.process_audio_channels(
-                    left_channel, right_channel)
-
-                # Make prediction
-                prediction = audio_processor.predict(feature_image)
-                
-                # Only send prediction if confidence is high enough
-                if prediction['confidence'] > 0.9:
-                    await websocket.send_json(prediction)
-                else:
-                    await websocket.send_json({
-                        "message": "No confident prediction available"
-                    })
-
-            except Exception as e:
-                logger.error(f"Error processing audio data: {e}")
-                await websocket.send_json({
-                    'error': str(e)
-                })
-
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
-# Also keep a REST endpoint for compatibility
-@app.post("/predict")
-async def predict(
-    left_channel: UploadFile = File(...),
-    right_channel: UploadFile = File(...),
-    sample_rate: int = Form(16000)
-):
-    try:
-        # Read raw audio data from files
-        left_data = await left_channel.read()
-        right_data = await right_channel.read()
-
-        logger.info(f"Received audio data - Left: {len(left_data)} bytes, Right: {len(right_data)} bytes")
-
-        # Process audio and get feature image
-        feature_image = audio_processor.process_audio_channels(
-            left_data, right_data, sample_rate)
-
-        # Make prediction
-        prediction = audio_processor.predict(feature_image)
-        
-        # Check confidence threshold
-        if prediction['confidence'] > 0.9:
-            logger.info(f"High confidence prediction: {prediction}")
-            return prediction
-        else:
-            logger.info(f"Low confidence prediction, returning message: {prediction['confidence']}")
-            return {"message": "No confident prediction available"}
+        }
 
     except Exception as e:
-        logger.error(f"Error processing request: {e}")
-        return {"error": str(e)}
+        logger.error(f"Error processing audio file: {str(e)}")
+        return {"status": "error", "error": str(e)}
     
+    finally:
+        if temp_m4a and os.path.exists(temp_m4a.name):
+            os.unlink(temp_m4a.name)
+        if temp_wav and os.path.exists(temp_wav):
+            os.unlink(temp_wav)
+
+def infer_static_audio(audio_file_path):
+    """Run inference on a static audio file."""
+    
+    # Check if file exists
+    if not os.path.exists(audio_file_path):
+        logger.error(f"File not found: {audio_file_path}")
+        return {"status": "error", "message": "File not found"}
+
+    try:
+        logger.info(f"Processing static audio file: {audio_file_path}")
+
+        # Convert to WAV
+        temp_wav = audio_file_path.replace('.m4a', '.wav')
+        convert_to_wav(audio_file_path, temp_wav)
+
+        # Process audio into spectrogram & MFCC image
+        processed_image = process_audio(temp_wav)
+
+        # Run inference
+        vehicle_type, direction, confidence = predict_direction(model, processed_image, device)
+
+        # Log and return results
+        logger.info(f"Prediction details - Vehicle: {vehicle_type}, Direction: {direction}, Confidence: {confidence:.4f}")
+
+        return {
+            "status": "success",
+            "file": os.path.basename(audio_file_path),
+            "inference_result": {
+                "vehicle_type": vehicle_type,
+                "direction": direction,
+                "confidence": round(confidence, 4),
+                "should_notify": confidence > 0.97
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error during static file inference: {e}")
+        return {"status": "error", "message": str(e)}
+    
+    finally:
+        # Cleanup WAV file
+        if os.path.exists(temp_wav):
+            os.unlink(temp_wav)
+
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8888)
