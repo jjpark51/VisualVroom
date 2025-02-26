@@ -16,6 +16,7 @@ from datetime import datetime
 import whisper
 from typing import Optional
 import tempfile
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ app = FastAPI()
 
 whisper_model = whisper.load_model("small")
 
+# Audio amplitude threshold - below this we consider the audio too quiet
+AMPLITUDE_THRESHOLD = 0.15
 
 @app.post("/transcribe")
 async def transcribe_audio(
@@ -124,9 +127,17 @@ def process_audio(wav_file):
     top_mic = y[:, 0] if len(y.shape) > 1 else y
     bottom_mic = y[:, 1] if len(y.shape) > 1 else y
     
-    # Calculate amplitude-based direction
+    # Calculate maximum amplitude across both channels
     top_max = float(abs(top_mic).max())
     bottom_max = float(abs(bottom_mic).max())
+    overall_max_amplitude = max(top_max, bottom_max)
+    
+    # Check if the audio is too quiet
+    if overall_max_amplitude < AMPLITUDE_THRESHOLD:
+        log_with_print(f"Audio too quiet: max amplitude {overall_max_amplitude:.4f} is below threshold {AMPLITUDE_THRESHOLD}")
+        return None, "N", 0.0  # Return None to indicate no processing needed
+    
+    # Calculate amplitude-based direction
     amplitude_direction = "L" if top_max > bottom_max else "R"
     amplitude_ratio = top_max / bottom_max if top_max > bottom_max else bottom_max / top_max
     
@@ -189,14 +200,14 @@ def process_audio(wav_file):
     # Save the stitched image for inspection
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_dir = "debug_images"
-    os.makedirs(save_dir, exist_ok=True)
+    # os.makedirs(save_dir, exist_ok=True)
     
     # Save individual components
-    top_spectrogram_img.save(f"{save_dir}/top_spec_{timestamp}.png")
-    bottom_spectrogram_img.save(f"{save_dir}/bottom_spec_{timestamp}.png")
-    top_mfcc_img.save(f"{save_dir}/top_mfcc_{timestamp}.png")
-    bottom_mfcc_img.save(f"{save_dir}/bottom_mfcc_{timestamp}.png")
-    final_img.save(f"{save_dir}/stitched_{timestamp}.png")
+    # top_spectrogram_img.save(f"{save_dir}/top_spec_{timestamp}.png")
+    # bottom_spectrogram_img.save(f"{save_dir}/bottom_spec_{timestamp}.png")
+    # top_mfcc_img.save(f"{save_dir}/top_mfcc_{timestamp}.png")
+    # bottom_mfcc_img.save(f"{save_dir}/bottom_mfcc_{timestamp}.png")
+    # final_img.save(f"{save_dir}/stitched_{timestamp}.png")
     
     log_with_print(f"Processing completed successfully")
     log_with_print(f"{'='*50}\n")
@@ -262,7 +273,25 @@ async def test_audio(audio_file: UploadFile = File(...)):
         convert_to_wav(temp_m4a.name, temp_wav)
 
         # Process audio into image and get amplitude-based direction
-        processed_image, amplitude_direction, amplitude_ratio = process_audio(temp_wav)
+        processed_result = process_audio(temp_wav)
+        
+        # Check if audio was too quiet to process
+        if processed_result[0] is None:
+            # Audio too quiet - return special response
+            logger.info("Audio too quiet - skipping prediction")
+            return {
+                "status": "success",
+                "inference_result": {
+                    "vehicle_type": "None",
+                    "direction": "N",
+                    "confidence": 0.0,
+                    "should_notify": False,
+                    "amplitude_ratio": 0.0,
+                    "too_quiet": True
+                }
+            }
+        
+        processed_image, amplitude_direction, amplitude_ratio = processed_result
 
         # Run model inference
         vehicle_type, model_direction, confidence = predict_direction(model, processed_image, device)
@@ -273,7 +302,6 @@ async def test_audio(audio_file: UploadFile = File(...)):
         # Log inference results
         logger.info(f"\nPrediction Results:")
         logger.info(f"Model prediction: {vehicle_type}_{model_direction}")
-        # logger.info(f"Amplitude-based direction: {amplitude_direction}")
         logger.info(f"Final decision: {vehicle_type}_{final_direction}")
         logger.info(f"Amplitude ratio: {amplitude_ratio:.4f}")
         logger.info(f"Model confidence: {confidence:.4f}")
@@ -285,7 +313,8 @@ async def test_audio(audio_file: UploadFile = File(...)):
                 "direction": model_direction,
                 "confidence": round(confidence, 4),
                 "should_notify": confidence > 0.97,
-                "amplitude_ratio": round(amplitude_ratio, 4)
+                "amplitude_ratio": round(amplitude_ratio, 4),
+                "too_quiet": False
             }
         }
 
@@ -315,7 +344,25 @@ def infer_static_audio(audio_file_path):
         convert_to_wav(audio_file_path, temp_wav)
 
         # Process audio into spectrogram & MFCC image
-        processed_image = process_audio(temp_wav)
+        processed_result = process_audio(temp_wav)
+        
+        # Check if audio was too quiet to process
+        if processed_result[0] is None:
+            # Audio too quiet - return special response
+            logger.info("Audio too quiet - skipping prediction")
+            return {
+                "status": "success",
+                "file": os.path.basename(audio_file_path),
+                "inference_result": {
+                    "vehicle_type": "None",
+                    "direction": "N",
+                    "confidence": 0.0,
+                    "should_notify": False,
+                    "too_quiet": True
+                }
+            }
+            
+        processed_image, amplitude_direction, amplitude_ratio = processed_result
 
         # Run inference
         vehicle_type, direction, confidence = predict_direction(model, processed_image, device)
@@ -330,7 +377,8 @@ def infer_static_audio(audio_file_path):
                 "vehicle_type": vehicle_type,
                 "direction": direction,
                 "confidence": round(confidence, 4),
-                "should_notify": confidence > 0.97
+                "should_notify": confidence > 0.97,
+                "too_quiet": False
             }
         }
 
