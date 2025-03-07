@@ -128,23 +128,28 @@ def generate_images(segments, sr):
     
     return images
 
-def save_images(images, output_dir, start_index=0):
+def save_images(images, output_dir, source_file, start_index=0):
+    """
+    Save images with a prefix based on the containing folder and original source file.
+    """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
+    # Get folder name to use as prefix
+    folder_name = os.path.basename(output_dir)
+    
+    # Get source filename without extension
+    source_name = os.path.splitext(os.path.basename(source_file))[0]
+    
     for i, img in enumerate(images):
-        img_path = os.path.join(output_dir, f"sample_{start_index + i}.png")
+        # Use folder name and source file as prefix
+        img_path = os.path.join(output_dir, f"{folder_name}_{source_name}_{start_index + i}.png")
         img.save(img_path)
+        print(f"Saved image: {img_path}")
 
 def process_directory(input_dir, file_pattern, output_dir):
     file_paths = glob.glob(os.path.join(input_dir, file_pattern))
     start_index = 0
-    
-    # Determine the starting index to avoid overlapping
-    existing_files = glob.glob(os.path.join(output_dir, "sample_*.png"))
-    if existing_files:
-        existing_indices = [int(os.path.basename(f).split('_')[1].split('.')[0]) for f in existing_files]
-        start_index = max(existing_indices) + 1
     
     for file_path in file_paths:
         print(f"Processing file: {file_path}")
@@ -155,8 +160,8 @@ def process_directory(input_dir, file_pattern, output_dir):
         # Generate images
         images = generate_images(segments, sample_rate)
         
-        # Save images
-        save_images(images, output_dir, start_index)
+        # Save images with source filename info
+        save_images(images, output_dir, file_path, start_index)
         
         # Update start index for the next file
         start_index += len(images)
@@ -166,9 +171,95 @@ def process_directory(input_dir, file_pattern, output_dir):
             direction = calculate_sound_direction(top, bottom)
             print(f"Segment {i}: The sound is coming from the {direction}.")
 
+def create_train_val_test_splits(base_dir, train_ratio=0.7, val_ratio=0.1):
+    """
+    Create proper train/validation/test splits based on audio source files,
+    not on individual generated image files.
+    
+    This ensures no data leakage between splits.
+    """
+    import shutil
+    import random
+    
+    # Create output directories
+    train_dir = os.path.join(base_dir, "train")
+    val_dir = os.path.join(base_dir, "val")
+    test_dir = os.path.join(base_dir, "test")
+    
+    for directory in [train_dir, val_dir, test_dir]:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+    
+    # Get all class directories
+    class_dirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) 
+                 and d not in ["train", "val", "test"]]
+    
+    for class_name in class_dirs:
+        class_path = os.path.join(base_dir, class_name)
+        
+        # Create class directories in train/val/test
+        train_class_dir = os.path.join(train_dir, class_name)
+        val_class_dir = os.path.join(val_dir, class_name)
+        test_class_dir = os.path.join(test_dir, class_name)
+        
+        for directory in [train_class_dir, val_class_dir, test_class_dir]:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+        
+        # Group files by their source audio file
+        files = glob.glob(os.path.join(class_path, "*.png"))
+        
+        # Extract source names from filenames
+        source_files = {}
+        for file in files:
+            filename = os.path.basename(file)
+            # Format should be class_sourcename_index.png
+            parts = filename.split('_')
+            if len(parts) >= 3:
+                # Join all parts except the last one (index) and the first one (class)
+                source_name = '_'.join(parts[1:-1])
+                if source_name not in source_files:
+                    source_files[source_name] = []
+                source_files[source_name].append(file)
+        
+        # Split the source files into train/val/test
+        source_names = list(source_files.keys())
+        random.shuffle(source_names)
+        
+        n_sources = len(source_names)
+        n_train = int(train_ratio * n_sources)
+        n_val = int(val_ratio * n_sources)
+        
+        train_sources = source_names[:n_train]
+        val_sources = source_names[n_train:n_train+n_val]
+        test_sources = source_names[n_train+n_val:]
+        
+        # Move files to respective directories
+        for source in train_sources:
+            for file in source_files[source]:
+                shutil.copy(file, os.path.join(train_class_dir, os.path.basename(file)))
+        
+        for source in val_sources:
+            for file in source_files[source]:
+                shutil.copy(file, os.path.join(val_class_dir, os.path.basename(file)))
+        
+        for source in test_sources:
+            for file in source_files[source]:
+                shutil.copy(file, os.path.join(test_class_dir, os.path.basename(file)))
+        
+        print(f"Class {class_name}: {len(train_sources)} sources in train, {len(val_sources)} in val, {len(test_sources)} in test")
+        print(f"  Total images: {sum(len(source_files[s]) for s in train_sources)} in train, "
+              f"{sum(len(source_files[s]) for s in val_sources)} in val, "
+              f"{sum(len(source_files[s]) for s in test_sources)} in test")
+
 # Example usage
 input_dir = "/home/jjpark/Graduation/VisualVroom/direction/side"
-file_pattern = "Siren_R*.m4a"
-output_dir = "/home/jjpark/Graduation/VisualVroom/direction/train/Siren_R"
+file_pattern = "Bike_L*.m4a"
+output_dir = "/home/jjpark/Graduation/VisualVroom/direction/train/Bike_L"
 
+# Process audio files and generate images
 process_directory(input_dir, file_pattern, output_dir)
+
+# Optional: Create proper train/val/test splits (run this after processing all classes)
+# base_dir = "/home/jjpark/Graduation/VisualVroom/direction"
+# create_train_val_test_splits(base_dir)

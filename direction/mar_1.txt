@@ -1,0 +1,149 @@
+Dataset Statistics:
+  Siren_L: 375 images (13.9%)
+  Siren_R: 363 images (13.4%)
+  Bike_L: 480 images (17.8%)
+  Bike_R: 507 images (18.8%)
+  Horn_L: 483 images (17.9%)
+  Horn_R: 492 images (18.2%)
+Total: 2700 images
+
+Checking for potential data leakage issues...
+Found patterns in filenames that might indicate related samples:
+  Prefix 'B' appears in 987 files
+  Prefix 'H' appears in 975 files
+  Prefix 'S' appears in 738 files
+These patterns might lead to similar images across train/validation/test sets.
+
+No overlap found between train, validation, and test sets.
+Train set: 1890 images (70.0%)
+Validation set: 270 images (10.0%)
+Test set: 540 images (20.0%)
+
+Checking image similarity between samples...
+Test image: Bike_L_Bike_L4_194.png (Bike_L)
+Most similar train image: Bike_R_Bike_R8_141.png (Bike_R)
+Similarity: 0.9553
+----------------------------------------
+Test image: Bike_R_Bike_R1_275.png (Bike_R)
+Most similar train image: Bike_R_Bike_R1_288.png (Bike_R)
+Similarity: 0.9561
+----------------------------------------
+Test image: Siren_R_Siren_R2_103.png (Siren_R)
+Most similar train image: Siren_R_Siren_R2_118.png (Siren_R)
+Similarity: 0.9814
+----------------------------------------
+Test image: Horn_L_Horn_L14_341.png (Horn_L)
+Most similar train image: Bike_L_Bike_L2_272.png (Bike_L)
+Similarity: 0.9466
+----------------------------------------
+Test image: Siren_L_Siren_L3_276.png (Siren_L)
+Most similar train image: Siren_L_Siren_L3_285.png (Siren_L)
+Similarity: 0.9801
+----------------------------------------
+
+WARNING: Found 4/5 test images with very high similarity (>0.95) to training images!
+This suggests near-duplicate images across train/test splits, which can lead to artificially high accuracy.
+Using device: cuda
+Epoch 1/15
+----------
+train Loss: 1.2971 Acc: 0.4423
+val Loss: 0.8361 Acc: 0.6519
+Epoch 2/15
+----------
+train Loss: 0.6003 Acc: 0.7323
+val Loss: 0.2955 Acc: 0.8963
+Epoch 3/15
+----------
+train Loss: 0.2145 Acc: 0.9228
+val Loss: 0.1756 Acc: 0.9370
+Epoch 4/15
+----------
+train Loss: 0.0875 Acc: 0.9693
+val Loss: 0.0589 Acc: 0.9778
+Epoch 5/15
+----------
+train Loss: 0.0160 Acc: 0.9963
+val Loss: 0.0082 Acc: 1.0000
+Epoch 6/15
+----------
+train Loss: 0.0034 Acc: 0.9995
+val Loss: 0.0023 Acc: 1.0000
+Epoch 7/15
+----------
+train Loss: 0.0011 Acc: 1.0000
+val Loss: 0.0021 Acc: 1.0000
+Epoch 8/15
+----------
+train Loss: 0.0009 Acc: 1.0000
+val Loss: 0.0016 Acc: 1.0000
+Epoch 9/15
+----------
+train Loss: 0.0007 Acc: 1.0000
+val Loss: 0.0015 Acc: 1.0000
+Epoch 10/15
+----------
+train Loss: 0.0007 Acc: 1.0000
+val Loss: 0.0015 Acc: 1.0000
+Epoch 11/15
+----------
+train Loss: 0.0006 Acc: 1.0000
+val Loss: 0.0014 Acc: 1.0000
+Epoch 12/15
+----------
+train Loss: 0.0006 Acc: 1.0000
+val Loss: 0.0014 Acc: 1.0000
+Epoch 13/15
+----------
+train Loss: 0.0006 Acc: 1.0000
+val Loss: 0.0014 Acc: 1.0000
+Epoch 14/15
+----------
+train Loss: 0.0006 Acc: 1.0000
+val Loss: 0.0013 Acc: 1.0000
+Epoch 15/15
+----------
+train Loss: 0.0006 Acc: 1.0000
+val Loss: 0.0013 Acc: 1.0000
+Best val Acc: 1.0000
+Test Loss: 0.0014 Acc: 1.0000
+
+Confidence Statistics:
+Mean confidence: 0.9987
+Median confidence: 0.9996
+Min confidence: 0.8231
+Max confidence: 0.9999
+
+WARNING: Found 459 test samples with suspiciously high confidence (>0.999)
+This might indicate memorization or data leakage.
+Sample of suspicious predictions:
+1. True: Horn_R, Pred: Horn_R, Conf: 0.999808
+2. True: Bike_R, Pred: Bike_R, Conf: 0.999843
+3. True: Bike_L, Pred: Bike_L, Conf: 0.999569
+4. True: Horn_L, Pred: Horn_L, Conf: 0.999435
+5. True: Bike_L, Pred: Bike_L, Conf: 0.999762
+
+Classification Report:
+              precision    recall  f1-score   support
+
+     Siren_L       1.00      1.00      1.00        75
+     Siren_R       1.00      1.00      1.00        73
+      Bike_L       1.00      1.00      1.00        96
+      Bike_R       1.00      1.00      1.00       101
+      Horn_L       1.00      1.00      1.00        97
+      Horn_R       1.00      1.00      1.00        98
+
+    accuracy                           1.00       540
+   macro avg       1.00      1.00      1.00       540
+weighted avg       1.00      1.00      1.00       540
+
+
+Per-class accuracy:
+Siren_L: 1.0000
+Siren_R: 1.0000
+Bike_L: 1.0000
+Bike_R: 1.0000
+Horn_L: 1.0000
+Horn_R: 1.0000
+
+Training completed!
+Final test accuracy: 1.0000

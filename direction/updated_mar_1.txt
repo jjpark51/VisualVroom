@@ -1,0 +1,117 @@
+Dataset Statistics for ./train:
+  Siren_L: 300 images (13.9%)
+  Siren_R: 291 images (13.5%)
+  Bike_L: 381 images (17.6%)
+  Bike_R: 408 images (18.9%)
+  Horn_L: 387 images (17.9%)
+  Horn_R: 396 images (18.3%)
+Total: 2163 images
+Dataset Statistics for ./valid:
+  Siren_L: 24 images (16.7%)
+  Siren_R: 24 images (16.7%)
+  Bike_L: 24 images (16.7%)
+  Bike_R: 24 images (16.7%)
+  Horn_L: 24 images (16.7%)
+  Horn_R: 24 images (16.7%)
+Total: 144 images
+Dataset Statistics for ./test:
+  Siren_L: 51 images (13.0%)
+  Siren_R: 48 images (12.2%)
+  Bike_L: 75 images (19.1%)
+  Bike_R: 75 images (19.1%)
+  Horn_L: 72 images (18.3%)
+  Horn_R: 72 images (18.3%)
+Total: 393 images
+Using device: cuda
+Epoch 1/15
+----------
+train Loss: 1.3561 Acc: 0.4392
+val Loss: 1.2369 Acc: 0.4236
+Epoch 2/15
+----------
+train Loss: 0.8842 Acc: 0.6477
+val Loss: 0.9238 Acc: 0.6458
+Epoch 3/15
+----------
+train Loss: 0.6126 Acc: 0.7675
+val Loss: 0.9210 Acc: 0.6597
+Epoch 4/15
+----------
+train Loss: 0.4303 Acc: 0.8465
+val Loss: 0.7778 Acc: 0.8333
+Epoch 5/15
+----------
+train Loss: 0.3153 Acc: 0.8821
+val Loss: 0.6598 Acc: 0.7917
+Epoch 6/15
+----------
+train Loss: 0.2212 Acc: 0.9256
+val Loss: 0.5577 Acc: 0.7708
+Epoch 7/15
+----------
+train Loss: 0.1457 Acc: 0.9422
+val Loss: 0.4535 Acc: 0.7917
+Epoch 8/15
+----------
+train Loss: 0.0930 Acc: 0.9672
+val Loss: 0.6533 Acc: 0.7917
+Epoch 9/15
+----------
+train Loss: 0.0926 Acc: 0.9653
+val Loss: 0.2453 Acc: 0.9375
+Epoch 10/15
+----------
+train Loss: 0.0513 Acc: 0.9838
+val Loss: 0.4806 Acc: 0.7917
+Epoch 11/15
+----------
+train Loss: 0.0494 Acc: 0.9861
+val Loss: 0.4614 Acc: 0.8472
+Epoch 12/15
+----------
+train Loss: 0.0251 Acc: 0.9926
+val Loss: 0.4992 Acc: 0.8125
+Early stopping triggered at epoch 12
+Best val Acc: 0.9375
+Test Loss: 0.5549 Acc: 0.8397
+
+Confidence Statistics:
+Mean confidence: 0.9293
+Median confidence: 0.9938
+Min confidence: 0.4203
+Max confidence: 0.9996
+
+WARNING: Found 55 test samples with suspiciously high confidence (>0.999)
+This might indicate memorization or data leakage.
+Sample of suspicious predictions:
+1. True: Bike_L, Pred: Bike_L, Conf: 0.999273
+2. True: Bike_L, Pred: Bike_L, Conf: 0.999604
+3. True: Bike_L, Pred: Bike_L, Conf: 0.999587
+4. True: Bike_L, Pred: Bike_L, Conf: 0.999255
+5. True: Bike_L, Pred: Bike_L, Conf: 0.999025
+
+Classification Report:
+              precision    recall  f1-score   support
+
+     Siren_L       1.00      0.65      0.79        51
+     Siren_R       1.00      0.88      0.93        48
+      Bike_L       0.83      1.00      0.91        75
+      Bike_R       0.79      0.88      0.83        75
+      Horn_L       0.79      0.79      0.79        72
+      Horn_R       0.79      0.79      0.79        72
+
+    accuracy                           0.84       393
+   macro avg       0.87      0.83      0.84       393
+weighted avg       0.85      0.84      0.84       393
+
+
+Per-class accuracy:
+Siren_L: 0.6471
+Siren_R: 0.8750
+Bike_L: 1.0000
+Bike_R: 0.8800
+Horn_L: 0.7917
+Horn_R: 0.7917
+
+Training completed!
+Final test accuracy: 0.8397
