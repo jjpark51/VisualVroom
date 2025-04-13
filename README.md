@@ -1,173 +1,102 @@
-
-# VisualVroom Backend
+# VisualVroom - ML Backend Server
 
 ## Overview
-This is the backend server for VisualVroom, an assistive technology application that helps identify vehicle alert sounds and their directions. The system uses a Vision Transformer (ViT) model to process audio spectrograms and provides real-time classification through WebSocket connections.
+The backend server component of the VisualVroom system built with PyTorch and FastAPI. 
 
 ## Features
-- Real-time audio processing pipeline
-- WebSocket server for streaming audio data
-- Vision Transformer (ViT) model for sound classification
-- Multi-channel audio support (Left, Right, Rear)
-- Spectrogram and MFCC feature extraction
-- Edge AI optimization
-- High-accuracy vehicle sound classification
+- **Audio Processing Pipeline**: Transforms raw audio into spectrograms and MFCCs
+- **Vehicle Sound Classification**: Identifies sirens, bicycle bells, and car horns
+- **Direction Detection**: Determines if sounds are coming from the left or right
+- **Confidence Scoring**: Provides confidence levels for predictions
+- **Speech-to-Text API**: Offers Whisper AI integration for speech transcription
 
-## Technical Stack
+## Technical Architecture
+- **ML Model**: Vision Transformer (ViT-B/16) adapted for audio spectrogram classification
+- **Audio Processing**: Uses librosa and soundfile for feature extraction
+- **API Framework**: FastAPI for efficient, asynchronous endpoints
+- **Speech Recognition**: Uses OpenAI's Whisper model for transcription
+
+## Requirements
 - Python 3.8+
-- PyTorch for deep learning
-- Librosa for audio processing
-- Websockets for real-time communication
-- Numpy for numerical operations
-- Matplotlib for visualization
+- PyTorch 1.10+
+- CUDA-compatible GPU (recommended for production)
+- 2GB+ RAM
 
 ## Installation
 
-1. Clone the repository:
+### Manual Installation
 ```bash
-git clone https://github.com/jjpark51/VisualVroom-Android.git
-cd VisualVroom-Android/backend
-```
+# Clone repository
+git clone https://github.com/jjpark51/visualvroom-backend.git
+cd visualvroom-backend
 
-2. Create a virtual environment:
-```bash
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
+source venv/bin/activate  
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Download the model checkpoint
+mkdir -p checkpoints
+wget -O checkpoints/feb_25_checkpoint.pth https://[your-model-host]/feb_25_checkpoint.pth
+
+# Start the server
+python main.py
 ```
 
-3. Install required packages:
-```bash
-pip install torch torchvision torchaudio
-pip install websockets numpy librosa matplotlib
-```
+## API Endpoints
 
-## Project Structure
-```
-backend/
-├── model_checkpoints/      # Trained model checkpoints
-├── websocket_server.py     # WebSocket server implementation
-├── vit.ipynb              # Vision Transformer model definition
-├── inference.py           # Model inference code
-└── README.md
-```
+### 1. `/test` (POST)
+Process audio files for vehicle sound detection.
 
-## Model Architecture
-The system uses a Vision Transformer (ViT) model adapted for audio classification:
-- Input: Stitched spectrograms and MFCC features
-- Architecture: ViT-B/16 backbone
-- Output: 12 classes (4 vehicle types × 3 directions)
-- Preprocessing: Audio to spectrogram conversion with MFCC feature extraction
+**Parameters:**
+- `audio_file`: M4A audio file (will be converted to WAV)
 
-## Running the Server
-
-1. Start the WebSocket server:
-```bash
-python websocket_server.py
-```
-
-The server will start listening on `ws://0.0.0.0:8080`
-
-## API Reference
-
-### WebSocket Endpoints
-
-#### Audio Stream Endpoint
-- URL: `ws://server:8080`
-- Protocol: WebSocket
-- Message Format: Binary audio data with channel identifier
-
-Input Format:
-- First byte: Channel identifier (0: Left, 1: Right, 2: Rear)
-- Remaining bytes: Raw audio data (16kHz, 16-bit PCM)
-
-Response Format:
+**Response:**
 ```json
 {
-    "vehicle_type": "string",
-    "direction": "string",
-    "confidence": float,
-    "timestamp": float,
-    "should_notify": boolean
+  "status": "success",
+  "inference_result": {
+    "vehicle_type": "Siren|Bike|Horn",
+    "direction": "L|R",
+    "confidence": 0.97,
+    "should_notify": true,
+    "amplitude_ratio": 1.2,
+    "too_quiet": false
+  }
 }
 ```
 
-## Model Training
+### 2. `/transcribe` (POST)
+Transcribe speech to text using Whisper AI.
 
-To train the model:
+**Parameters:**
+- `sample_rate`: Integer sample rate in Hz
+- `audio_data`: Raw PCM audio data
 
-1. Prepare your dataset in the required format
-2. Run the training script:
-```bash
-python vit.py
+**Response:**
+```json
+{
+  "status": "success",
+  "text": "Transcribed text from the audio"
+}
 ```
 
-Training parameters can be modified in the script:
-- Batch size: 32
-- Learning rate: 1e-4
-- Number of epochs: 30
-- Early stopping patience: 7
+## Model Architecture
+The system uses a Vision Transformer (ViT) architecture adapted for audio processing:
+- Input: Composite images containing both MFCC and spectrogram representations
+- Architecture: Modified ViT-B/16 with a custom input layer for grayscale images
+- Output: 6 classes (Siren_L, Siren_R, Bike_L, Bike_R, Horn_L, Horn_R)
 
-## Performance
-
-### Overall Model Performance
-- Test Accuracy: 97.63%
-- Validation Accuracy: 97.16%
-- Best Model Epoch: 14
-
-### Per-Class Performance
-
-#### Ambulance Detection
-- Left Direction: 99.06%
-- Middle Direction: 100.00%
-- Right Direction: 94.85%
-
-#### Car Horn Detection
-- Left Direction: 100.00%
-- Middle Direction: 97.75%
-- Right Direction: 100.00%
-
-#### Fire Truck Detection
-- Left Direction: 98.15%
-- Middle Direction: 95.08%
-- Right Direction: 96.55%
-
-#### Police Car Detection
-- Left Direction: 100.00%
-- Middle Direction: 96.77%
-- Right Direction: 92.08%
-
-### System Performance
-- Average inference time: 8.75ms
-- Real-time processing capability: Yes
-- Minimum confidence threshold: 80%
-
-## Development
-
-To contribute to the project:
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement your changes
-4. Submit a pull request
-
-## Monitoring and Logging
-
-The server provides detailed logging for:
-- WebSocket connections/disconnections
-- Model inference results
-- Error handling
-- Performance metrics
-
-## Error Handling
-
-The system includes robust error handling for:
-- Audio processing failures
-- Model inference issues
-- Connection problems
-- Invalid data formats
-
-## License
-[TBD]
+## Audio Processing Pipeline
+1. **Preprocessing**: Audio is converted to WAV format and analyzed for amplitude
+2. **Feature Extraction**:
+   - Spectrograms are generated for each channel
+   - MFCCs are extracted for additional features
+3. **Image Generation**: Features are converted to grayscale images and stitched together
+4. **Model Inference**: The composite image is fed into the Vision Transformer
+5. **Post-processing**: Additional amplitude-based direction analysis is performed as a verification step
 
 
 
